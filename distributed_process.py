@@ -15,7 +15,7 @@ class Task(object):
         self._func = func
         self._args = args
 
-    @vthread.pool(2)
+    @vthread.pool(4)
     def run(self, stress: Value):
         self._func(self._args)
         stress.value -= 1
