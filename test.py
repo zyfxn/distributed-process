@@ -9,12 +9,14 @@ def hello(arg):
 
 if __name__ == '__main__':
     service = ProcessService()
+    service.set_max_process_count(10)
+
     start_time = time.time()
     for i in range(200):
         service.put_task(func=hello, args=0)
 
     service = ProcessService()
-    for i in range(100):
+    for i in range(1000):
         service.put_task(func=hello, args=0)
 
     print("task put done, %0.6f" % (time.time() - start_time))

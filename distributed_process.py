@@ -44,6 +44,9 @@ class WorkerProcess(Process):
     def get_received_task_count(self):
         return self._received.value
 
+    def get_qsize(self):
+        return self._queue.qsize()
+
     def run(self):
         while self._running.value:
             try:
@@ -54,11 +57,16 @@ class WorkerProcess(Process):
                 time.sleep(0.001)
 
 
+class MonitorProcess(Process):
+    pass
+
+
 class MasterProcess(Process):
     _workers: WorkerProcess = []
     _running: Value
     _queue: Queue
     _max_process_count: Value
+    _queuing_worker_count: int = 0
 
     def __init__(self):
         Process.__init__(self)
@@ -80,52 +88,43 @@ class MasterProcess(Process):
     def stop(self):
         self._running.value = 0
 
-    def __get_idle_worker_index(self, index):
+    def __get_worker_index(self, index):
         count = len(self._workers)
         if count == 0:
             return -1
 
         index = self.__next_worker(index, count)
-        # overload = 0
-        # while self._workers[index].get_stress() >= 2:
-        #     overload += 1
-        #     if overload >= count:
-        #         return -1
-        #     index = self.__next_worker(index, count)
+        if self._workers[index].get_qsize() > 0:
+            self._queuing_worker_count += 1
 
         return index
 
-    @staticmethod
-    def __next_worker(index, count):
+    def __next_worker(self, index, count):
         index += 1
         if index >= count:
             index = 0
+            self._queuing_worker_count = 0
         return index
 
     def __wait_for_idle_worker_index(self):
         index = -1
         while index < 0 and self._running.value:
-            index = self.__get_idle_worker_index(0)
+            index = self.__get_worker_index(0)
             time.sleep(0)
         return index
 
     def run(self):
         self.add_process()
-        self.add_process()
-        self.add_process()
         idle_worker_index = -1  # idle worker is unknown
         while self._running.value:
             try:
-                idle_worker_index = self.__get_idle_worker_index(idle_worker_index)
-                if idle_worker_index < 0:
-                    if len(self._workers) < self._max_process_count.value:
-                        self.add_process()
-                        idle_worker_index = len(self._workers) - 1
-                    else:
-                        idle_worker_index = self.__wait_for_idle_worker_index()
+                idle_worker_index = self.__get_worker_index(idle_worker_index)
 
-                if not self._running.value:
-                    break
+                worker_count = len(self._workers)
+                if self._queuing_worker_count >= worker_count and \
+                        worker_count < self._max_process_count.value:
+                    self.add_process()
+                    idle_worker_index = len(self._workers) - 1
 
                 task: Task = self._queue.get(block=False)
                 self._workers[idle_worker_index].put_task(task)
