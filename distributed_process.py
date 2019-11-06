@@ -4,9 +4,7 @@ import vthread
 from multiprocessing import Process, Queue, Value
 from queue import Empty
 from typing import Callable, Any
-
-g_thread_count = 1
-g_max_process_count = 3
+from singleton3 import Singleton
 
 
 class Task(object):
@@ -17,13 +15,13 @@ class Task(object):
         self._func = func
         self._args = args
 
-    @vthread.pool(g_thread_count)
+    @vthread.pool(2)
     def run(self, stress: Value):
         self._func(self._args)
         stress.value -= 1
 
 
-class ProcessWorker(Process):
+class WorkerProcess(Process):
     _running: Value
     _queue: Queue
     _stress: Value
@@ -56,18 +54,23 @@ class ProcessWorker(Process):
                 time.sleep(0.001)
 
 
-class ProcessMaster(Process):
-    _workers: ProcessWorker = []
+class MasterProcess(Process):
+    _workers: WorkerProcess = []
     _running: Value
     _queue: Queue
+    _max_process_count: Value
 
     def __init__(self):
         Process.__init__(self)
         self._running = Value('b', 1)
         self._queue = Queue()
+        self._max_process_count = Value('i', 0)
+
+    def set_max_process_count(self, count):
+        self._max_process_count.value = count
 
     def add_process(self):
-        worker = ProcessWorker(running_flag=self._running)
+        worker = WorkerProcess(running_flag=self._running)
         self._workers.append(worker)
         worker.start()
 
@@ -83,12 +86,12 @@ class ProcessMaster(Process):
             return -1
 
         index = self.__next_worker(index, count)
-        overload = 0
-        while self._workers[index].get_stress() >= g_thread_count:
-            overload += 1
-            if overload >= count:
-                return -1
-            index = self.__next_worker(index, count)
+        # overload = 0
+        # while self._workers[index].get_stress() >= 2:
+        #     overload += 1
+        #     if overload >= count:
+        #         return -1
+        #     index = self.__next_worker(index, count)
 
         return index
 
@@ -103,17 +106,19 @@ class ProcessMaster(Process):
         index = -1
         while index < 0 and self._running.value:
             index = self.__get_idle_worker_index(0)
-            time.sleep(0.001)
+            time.sleep(0)
         return index
 
     def run(self):
         self.add_process()
-        idle_worker_index = -1    # idle worker is unknown
+        self.add_process()
+        self.add_process()
+        idle_worker_index = -1  # idle worker is unknown
         while self._running.value:
             try:
                 idle_worker_index = self.__get_idle_worker_index(idle_worker_index)
                 if idle_worker_index < 0:
-                    if len(self._workers) < g_max_process_count:
+                    if len(self._workers) < self._max_process_count.value:
                         self.add_process()
                         idle_worker_index = len(self._workers) - 1
                     else:
@@ -128,25 +133,31 @@ class ProcessMaster(Process):
             except Empty:
                 time.sleep(0.001)
 
+        print("data in the queue remain", self._queue.qsize())
+        while not self._queue.empty():
+            self._queue.get()
+
         for worker in self._workers:
             worker.join()
             print(worker.get_received_task_count())
 
 
-class ProcessService(object):
-    _master: ProcessMaster
+class ProcessService(object, metaclass=Singleton):
+    _master: MasterProcess
     _queue: Queue
 
     def __init__(self):
-        self._master = ProcessMaster()
+        self._master = MasterProcess()
         self._queue = Queue()
+        self._master.start()
 
     def put_task(self, func: Callable, args: Any):
         task = Task(func=func, args=args)
         self._master.put_task(task)
 
-    def startup(self):
-        self._master.start()
-
     def shutdown(self):
         self._master.stop()
+        self._master.join()
+
+    def set_max_process_count(self, count):
+        self._master.set_max_process_count(count)
