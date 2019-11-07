@@ -1,6 +1,6 @@
 import time
 
-from distributed_process import ProcessService
+from dtbprocess import ProcessService
 
 
 def hello(arg):
