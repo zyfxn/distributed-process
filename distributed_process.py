@@ -1,3 +1,4 @@
+import math
 import time
 import vthread
 
@@ -15,7 +16,7 @@ class Task(object):
         self._func = func
         self._args = args
 
-    @vthread.pool(4)
+    @vthread.pool(pool_num=4)
     def run(self, stress: Value):
         self._func(self._args)
         stress.value -= 1
@@ -36,7 +37,6 @@ class WorkerProcess(Process):
 
     def put_task(self, task: Task):
         self._queue.put(task)
-        self._stress.value += 1
 
     def get_stress(self):
         return self._stress.value
@@ -52,6 +52,7 @@ class WorkerProcess(Process):
             try:
                 task_data: Task = self._queue.get(block=False)
                 self._received.value += 1
+                self._stress.value += 1
                 task_data.run(self._stress)
             except Empty:
                 time.sleep(0.001)
@@ -62,8 +63,7 @@ class MasterProcess(Process):
     _running: Value
     _queue: Queue
     _max_process_count: Value
-    _busy_worker_count: int = 0
-    _task_limit_per_sec: int = 1000
+    _task_limit_per_sec: int = 500
 
     def __init__(self):
         Process.__init__(self)
@@ -86,44 +86,59 @@ class MasterProcess(Process):
         self._running.value = 0
 
     def __get_worker_index(self, index):
-        count = len(self._workers)
-        if count == 0:
-            return -1
-
-        index = self.__next_worker(index, count)
-        if self._workers[index].get_qsize() > 0:
-            self._busy_worker_count += 1
-
+        index += 1
+        if index >= len(self._workers):
+            index = 0
         return index
 
-    def __next_worker(self, index, count):
-        index += 1
-        if index >= count:
-            index = 0
-            self._busy_worker_count = 0
+    def _check_workers_overload(self, index):
+        remain_task_count_sum = 0
+        for worker in self._workers:
+            remain = worker.get_stress()
+            if remain == 0:
+                return index
+            remain_task_count_sum += remain
+
+        print("remain task:", remain_task_count_sum)
+        need_process_count = math.ceil(self._task_limit_per_sec / (self._task_limit_per_sec - remain_task_count_sum))
+        if need_process_count > self._max_process_count.value:
+            need_process_count = self._max_process_count.value
+
+        old_count = len(self._workers)
+        add = need_process_count - old_count
+        if add == 0:
+            return index
+
+        print("add process:", add)
+        for i in range(add):
+            self.add_process()
         return index
 
     def run(self):
         self.add_process()
 
-        idle_worker_index = -1  # idle worker is unknown
+        cur_time = time.time()
+        task_counter = 0
+        index = -1  # idle worker is unknown
         while self._running.value:
+            if time.time() - cur_time > 1:
+                index = self._check_workers_overload(index)
+                cur_time = time.time()
+                task_counter = 0
+
+            if task_counter >= self._task_limit_per_sec:
+                time.sleep(0.01)
+                continue
+
             try:
-                idle_worker_index = self.__get_worker_index(idle_worker_index)
-
-                worker_count = len(self._workers)
-                if self._busy_worker_count >= worker_count and \
-                        worker_count < self._max_process_count.value:
-                    self.add_process()
-                    idle_worker_index = len(self._workers) - 1
-
+                index = self.__get_worker_index(index)
                 task: Task = self._queue.get(block=False)
-                self._workers[idle_worker_index].put_task(task)
-
+                task_counter += 1
+                self._workers[index].put_task(task)
             except Empty:
                 time.sleep(0.01)
 
-        print("data in the queue remain", self._queue.qsize())
+        print("stop, clear remain data", self._queue.qsize())
         while not self._queue.empty():
             self._queue.get()
 
