@@ -57,16 +57,13 @@ class WorkerProcess(Process):
                 time.sleep(0.001)
 
 
-class MonitorProcess(Process):
-    pass
-
-
 class MasterProcess(Process):
     _workers: WorkerProcess = []
     _running: Value
     _queue: Queue
     _max_process_count: Value
-    _queuing_worker_count: int = 0
+    _busy_worker_count: int = 0
+    _task_limit_per_sec: int = 1000
 
     def __init__(self):
         Process.__init__(self)
@@ -95,7 +92,7 @@ class MasterProcess(Process):
 
         index = self.__next_worker(index, count)
         if self._workers[index].get_qsize() > 0:
-            self._queuing_worker_count += 1
+            self._busy_worker_count += 1
 
         return index
 
@@ -103,25 +100,19 @@ class MasterProcess(Process):
         index += 1
         if index >= count:
             index = 0
-            self._queuing_worker_count = 0
-        return index
-
-    def __wait_for_idle_worker_index(self):
-        index = -1
-        while index < 0 and self._running.value:
-            index = self.__get_worker_index(0)
-            time.sleep(0)
+            self._busy_worker_count = 0
         return index
 
     def run(self):
         self.add_process()
+
         idle_worker_index = -1  # idle worker is unknown
         while self._running.value:
             try:
                 idle_worker_index = self.__get_worker_index(idle_worker_index)
 
                 worker_count = len(self._workers)
-                if self._queuing_worker_count >= worker_count and \
+                if self._busy_worker_count >= worker_count and \
                         worker_count < self._max_process_count.value:
                     self.add_process()
                     idle_worker_index = len(self._workers) - 1
@@ -130,7 +121,7 @@ class MasterProcess(Process):
                 self._workers[idle_worker_index].put_task(task)
 
             except Empty:
-                time.sleep(0.001)
+                time.sleep(0.01)
 
         print("data in the queue remain", self._queue.qsize())
         while not self._queue.empty():
