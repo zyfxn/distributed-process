@@ -375,6 +375,17 @@ class pool:
             for i in v: i.join()
 
     @classmethod
+    def queue_get(self, gqueue=0):
+        q = self._pool_queue[gqueue]
+        if q.qsize() and not q == KillThreadParams:
+            return q.get()
+        return None
+
+    @classmethod
+    def queue_put(self, v, gqueue=0):
+        self._pool_queue[gqueue].put(v)
+
+    @classmethod
     def main_monitor(self):
         '''
         #==============================================================

@@ -24,14 +24,18 @@ class _WorkerItem(object):
 
 class _WorkerProcess(Process):
     _running: Value
+    _split: Value
     _queue: Queue
+    _split_queue: Queue
     _stress: Value
     _received: Value
 
-    def __init__(self, running_flag: Value):
+    def __init__(self, running_flag: Value, split_flow_flag: Value, split_queue: Queue):
         Process.__init__(self)
         self._running = running_flag
+        self._split = split_flow_flag
         self._queue = Queue()
+        self._split_queue = split_queue
         self._stress = Value('i', 0)
         self._received = Value('i', 0)
 
@@ -44,12 +48,15 @@ class _WorkerProcess(Process):
     def get_received_task_count(self):
         return self._received.value
 
-    def get_qsize(self):
-        return self._queue.qsize()
-
     def run(self):
         while self._running.value:
             try:
+                if self._split.value:
+                    v = vthread.pool.queue_get()
+                    if v is None:
+                        continue
+                    self._split_queue.put(v)
+                    continue
                 task_data: _WorkerItem = self._queue.get(block=False)
                 self._received.value += 1
                 self._stress.value += 1
@@ -61,19 +68,23 @@ class _WorkerProcess(Process):
 class _MasterProcess(Process):
     _workers: _WorkerProcess = []
     _running: Value
+    _split: Value
     _queue: Queue
+    _split_queue: Queue
     _max_process_count: Value
     _task_limit_per_sec: int
 
     def __init__(self):
         Process.__init__(self)
         self._running = Value('b', 1)
+        self._split = Value('b', 0)
         self._queue = Queue()
+        self._split_queue = Queue()
         self._max_process_count = Value('i', 10)
         self._task_limit_per_sec = 500
 
     def _add_process(self):
-        worker = _WorkerProcess(running_flag=self._running)
+        worker = _WorkerProcess(running_flag=self._running, split_flow_flag=self._split, split_queue=self._split_queue)
         self._workers.append(worker)
         worker.start()
 
@@ -107,9 +118,12 @@ class _MasterProcess(Process):
             return
         add = need_process_count - old_count
 
+        # self._split.value = 1  # start split data flow in thread pool
+
         print("add process:", add)
         for i in range(add):
             self._add_process()
+        # print(self._split_queue.qsize())
         return
 
     def run(self):
