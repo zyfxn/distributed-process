@@ -16,3 +16,4 @@ if __name__ == '__main__':
 
     time.sleep(3)
     service.shutdown()
+    print("shutdown,", str(time.time() - start_time))
