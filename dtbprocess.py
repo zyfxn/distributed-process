@@ -83,7 +83,7 @@ class _MasterProcess(Process):
     def stop(self):
         self._running.value = 0
 
-    def __get_worker_index(self, index):
+    def _get_worker_index(self, index):
         index += 1
         if index >= len(self._workers):
             index = 0
@@ -103,11 +103,9 @@ class _MasterProcess(Process):
             need_process_count = self._max_process_count.value
 
         old_count = len(self._workers)
-        if need_process_count < old_count:
+        if need_process_count <= old_count:
             return
         add = need_process_count - old_count
-        if add == 0:
-            return
 
         print("add process:", add)
         for i in range(add):
@@ -131,7 +129,7 @@ class _MasterProcess(Process):
                 continue
 
             try:
-                index = self.__get_worker_index(index)
+                index = self._get_worker_index(index)
                 task: _WorkerItem = self._queue.get(block=False)
                 task_counter += 1
                 self._workers[index].put_task(task)
@@ -163,6 +161,3 @@ class ProcessService(object, metaclass=Singleton):
     def shutdown(self):
         self._master.stop()
         self._master.join()
-
-    def set_max_process_count(self, count):
-        self._master.set_max_process_count(count)
