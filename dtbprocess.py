@@ -8,7 +8,7 @@ from typing import Callable, Any
 from singleton3 import Singleton
 
 
-class Task(object):
+class _WorkerItem(object):
     _func: Callable
     _args: Any
 
@@ -22,7 +22,7 @@ class Task(object):
         stress.value -= 1
 
 
-class WorkerProcess(Process):
+class _WorkerProcess(Process):
     _running: Value
     _queue: Queue
     _stress: Value
@@ -35,7 +35,7 @@ class WorkerProcess(Process):
         self._stress = Value('i', 0)
         self._received = Value('i', 0)
 
-    def put_task(self, task: Task):
+    def put_task(self, task: _WorkerItem):
         self._queue.put(task)
 
     def get_stress(self):
@@ -50,7 +50,7 @@ class WorkerProcess(Process):
     def run(self):
         while self._running.value:
             try:
-                task_data: Task = self._queue.get(block=False)
+                task_data: _WorkerItem = self._queue.get(block=False)
                 self._received.value += 1
                 self._stress.value += 1
                 task_data.run(self._stress)
@@ -58,28 +58,26 @@ class WorkerProcess(Process):
                 time.sleep(0.001)
 
 
-class MasterProcess(Process):
-    _workers: WorkerProcess = []
+class _MasterProcess(Process):
+    _workers: _WorkerProcess = []
     _running: Value
     _queue: Queue
     _max_process_count: Value
-    _task_limit_per_sec: int = 500
+    _task_limit_per_sec: int
 
     def __init__(self):
         Process.__init__(self)
         self._running = Value('b', 1)
         self._queue = Queue()
-        self._max_process_count = Value('i', 0)
+        self._max_process_count = Value('i', 10)
+        self._task_limit_per_sec = 500
 
-    def set_max_process_count(self, count):
-        self._max_process_count.value = count
-
-    def add_process(self):
-        worker = WorkerProcess(running_flag=self._running)
+    def _add_process(self):
+        worker = _WorkerProcess(running_flag=self._running)
         self._workers.append(worker)
         worker.start()
 
-    def put_task(self, task: Task):
+    def put_task(self, task: _WorkerItem):
         self._queue.put(task)
 
     def stop(self):
@@ -91,12 +89,12 @@ class MasterProcess(Process):
             index = 0
         return index
 
-    def _check_workers_overload(self, index):
+    def _check_workers_overload(self):
         remain_task_count_sum = 0
         for worker in self._workers:
             remain = worker.get_stress()
             if remain == 0:
-                return index
+                return
             remain_task_count_sum += remain
 
         print("remain task:", remain_task_count_sum)
@@ -105,24 +103,26 @@ class MasterProcess(Process):
             need_process_count = self._max_process_count.value
 
         old_count = len(self._workers)
+        if need_process_count < old_count:
+            return
         add = need_process_count - old_count
         if add == 0:
-            return index
+            return
 
         print("add process:", add)
         for i in range(add):
-            self.add_process()
-        return index
+            self._add_process()
+        return
 
     def run(self):
-        self.add_process()
+        self._add_process()
 
         cur_time = time.time()
         task_counter = 0
         index = -1  # idle worker is unknown
         while self._running.value:
             if time.time() - cur_time > 1:
-                index = self._check_workers_overload(index)
+                self._check_workers_overload()
                 cur_time = time.time()
                 task_counter = 0
 
@@ -132,7 +132,7 @@ class MasterProcess(Process):
 
             try:
                 index = self.__get_worker_index(index)
-                task: Task = self._queue.get(block=False)
+                task: _WorkerItem = self._queue.get(block=False)
                 task_counter += 1
                 self._workers[index].put_task(task)
             except Empty:
@@ -148,16 +148,16 @@ class MasterProcess(Process):
 
 
 class ProcessService(object, metaclass=Singleton):
-    _master: MasterProcess
+    _master: _MasterProcess
     _queue: Queue
 
     def __init__(self):
-        self._master = MasterProcess()
+        self._master = _MasterProcess()
         self._queue = Queue()
         self._master.start()
 
     def put_task(self, func: Callable, args: Any):
-        task = Task(func=func, args=args)
+        task = _WorkerItem(func=func, args=args)
         self._master.put_task(task)
 
     def shutdown(self):

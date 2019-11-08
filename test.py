@@ -9,7 +9,6 @@ def hello(arg):
 
 if __name__ == '__main__':
     service = ProcessService()
-    service.set_max_process_count(10)
 
     start_time = time.time()
     for i in range(1000):
