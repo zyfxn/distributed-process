@@ -11,9 +11,7 @@ if __name__ == '__main__':
     service = ProcessService()
 
     start_time = time.time()
-    for i in range(1000):
-        service.put_task(func=hello, args=0)
-
-    time.sleep(3)
+    for i in range(10000):
+        service.put(hello, 0)
     service.shutdown()
     print("shutdown,", str(time.time() - start_time))
