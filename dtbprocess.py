@@ -7,7 +7,7 @@ from typing import Callable, Any
 from singleton3 import Singleton
 
 
-def stopcall(self):
+def process_service_stop_param(self):
     pass
 
 
@@ -23,7 +23,7 @@ class _WorkerThread(Thread):
     def run(self):
         while True:
             v = self._queue.get()
-            if v == stopcall:
+            if v == process_service_stop_param:
                 break
             try:
                 func = v
@@ -42,7 +42,7 @@ class _WorkerProcess(Process):
         self._running = Value('b', 1)
 
     def put(self, v):
-        if v == stopcall:
+        if v == process_service_stop_param:
             self._running.value = 0
         self._queue.put(v)
 
@@ -63,7 +63,7 @@ class _WorkerProcess(Process):
             time.sleep(0.01)
 
         for _ in range(self._thread_count - 1):
-            self._queue.put(stopcall)
+            self._queue.put(process_service_stop_param)
 
 
 class _MasterProcess(Process):
@@ -84,7 +84,7 @@ class _MasterProcess(Process):
         self._queue.put(task)
 
     def stop(self):
-        self._queue.put(stopcall)
+        self._queue.put(process_service_stop_param)
 
     def _get_worker_index(self, index):
         if index < 0:
@@ -140,7 +140,7 @@ class _MasterProcess(Process):
 
             index = self._get_worker_index(index)
             v = self._queue.get()
-            if v == stopcall:
+            if v == process_service_stop_param:
                 break
             task_counter += 1
             self._workers[index].put(v)
@@ -149,12 +149,11 @@ class _MasterProcess(Process):
         while not self._queue.empty():
             self._queue.get()
         for worker in self._workers:
-            worker.put(stopcall)
+            worker.put(process_service_stop_param)
 
 
 class ProcessService(object, metaclass=Singleton):
     def __init__(self):
-        self._queue = Queue()
         self._master = _MasterProcess()
         self._master.start()
 
