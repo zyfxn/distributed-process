@@ -12,8 +12,9 @@ def process_service_stop_param(self):
 
 
 class _WorkerThread(Thread):
-    def __init__(self, queue: Queue):
+    def __init__(self, queue: Queue, pause: Value):
         Thread.__init__(self)
+        self._pause = pause
         self._queue = queue
 
     def put(self, v):
@@ -21,6 +22,9 @@ class _WorkerThread(Thread):
 
     def run(self):
         while True:
+            if self._pause.value:
+                time.sleep(0.01)
+                continue
             v = self._queue.get()
             if v == process_service_stop_param:
                 break
@@ -32,12 +36,13 @@ class _WorkerThread(Thread):
 
 
 class _WorkerProcess(Process):
-    def __init__(self, thread_count: int):
+    def __init__(self, thread_count: int, pause: Value):
         Process.__init__(self)
         self._queue = Queue()
         self._thread_count = thread_count
         self._threads = []
         self._running = Value('b', 1)
+        self._pause = pause
 
     def put(self, v):
         if v == process_service_stop_param:
@@ -56,7 +61,7 @@ class _WorkerProcess(Process):
 
     def run(self):
         for _ in range(self._thread_count):
-            worker = _WorkerThread(self._queue)
+            worker = _WorkerThread(self._queue, self._pause)
             worker.start()
             self._threads.append(worker)
 
@@ -70,12 +75,13 @@ class _MasterProcess(Process):
         self._queue = Queue()
         self._queue_redistribute = Queue()
         self._max_process_count = 10
-        self._task_limit_per_sec = 500
+        self._task_limit_per_sec = 1000
         self._thread_count = 4
         self._workers: _WorkerProcess = []
+        self._pause = Value('b', 0)
 
     def _add_process(self):
-        worker = _WorkerProcess(self._thread_count)
+        worker = _WorkerProcess(self._thread_count, self._pause)
         self._workers.append(worker)
         worker.start()
 
@@ -109,8 +115,10 @@ class _MasterProcess(Process):
             print("reach max process limit")
             return
 
+        self._pause.value = 1
         for worker in self._workers:
             worker.poll(self._queue_redistribute)
+        self._pause.value = 0
 
         print("add", need_process_count, "process. redistribute tasks", self._queue_redistribute.qsize())
         for i in range(need_process_count):
