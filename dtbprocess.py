@@ -29,8 +29,8 @@ class _WorkerThread(Thread):
             if v == process_service_stop_param:
                 break
             try:
-                func = v
-                func(self)
+                func, args, kw = v
+                func(*args, **kw)
             except BaseException as e:
                 print(" - thread stop_by_error - ", e)
 
@@ -164,8 +164,8 @@ class ProcessService(object, metaclass=Singleton):
         self._master = _MasterProcess()
         self._master.start()
 
-    def put(self, func: Callable, args: Any):
-        self._master.put(func)
+    def put(self, func: Callable, *args, **kw):
+        self._master.put((func, args, kw))
 
     def shutdown(self):
         self._master.stop()
