@@ -15,7 +15,6 @@ class _WorkerThread(Thread):
     def __init__(self, queue: Queue):
         Thread.__init__(self)
         self._queue = queue
-        self.done = 0
 
     def put(self, v):
         self._queue.put(v)
@@ -30,7 +29,6 @@ class _WorkerThread(Thread):
                 func(self)
             except BaseException as e:
                 print(" - thread stop_by_error - ", e)
-            self.done += 1
 
 
 class _WorkerProcess(Process):
@@ -44,6 +42,9 @@ class _WorkerProcess(Process):
     def put(self, v):
         if v == process_service_stop_param:
             self._running.value = 0
+            for _ in range(self._thread_count):
+                self._queue.put(process_service_stop_param)
+            return
         self._queue.put(v)
 
     def get_stress(self):
@@ -61,9 +62,6 @@ class _WorkerProcess(Process):
 
         while self._running.value:
             time.sleep(0.01)
-
-        for _ in range(self._thread_count - 1):
-            self._queue.put(process_service_stop_param)
 
 
 class _MasterProcess(Process):
