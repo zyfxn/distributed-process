@@ -79,6 +79,7 @@ class _MasterProcess(Process):
         self._thread_count = 4
         self._workers: _WorkerProcess = []
         self._pause = Value('b', 0)
+        self._remain_task = 0
 
     def _add_process(self):
         worker = _WorkerProcess(self._thread_count, self._pause)
@@ -99,6 +100,12 @@ class _MasterProcess(Process):
         if index >= len(self._workers):
             index = 0
         return index
+
+    def _check_master_stress(self):
+        current_task = self._queue.qsize()
+        if self._remain_task < current_task:
+            print("task in queue increasing from", self._remain_task, "to", current_task)
+        self._remain_task = current_task
 
     def _check_workers_stress(self):
         remain_task_count_sum = 0
@@ -128,6 +135,9 @@ class _MasterProcess(Process):
         while not self._queue_redistribute.empty():
             index = self._get_worker_index(index)
             self._workers[index].put(self._queue_redistribute.get())
+        print("wait 1 second")
+        time.sleep(1)
+        print("redistribute task done")
 
     def run(self):
         self._add_process()
@@ -137,6 +147,7 @@ class _MasterProcess(Process):
         index = -1  # idle worker is unknown
         while True:
             if time.time() - cur_time > 1:
+                self._check_master_stress()
                 self._check_workers_stress()
                 cur_time = time.time()
                 task_counter = 0
