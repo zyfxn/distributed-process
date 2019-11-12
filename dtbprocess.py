@@ -7,7 +7,7 @@ from typing import Callable, Any
 from singleton3 import Singleton
 
 
-def stop(self):
+def stopcall(self):
     pass
 
 
@@ -23,7 +23,7 @@ class _WorkerThread(Thread):
     def run(self):
         while True:
             v = self._queue.get()
-            if v == stop:
+            if v == stopcall:
                 break
             try:
                 func = v
@@ -42,12 +42,16 @@ class _WorkerProcess(Process):
         self._running = Value('b', 1)
 
     def put(self, v):
-        if v == stop:
+        if v == stopcall:
             self._running.value = 0
         self._queue.put(v)
 
     def get_stress(self):
         return self._queue.qsize()
+
+    def poll(self, out: Queue):
+        while not self._queue.empty():
+            out.put(self._queue.get())
 
     def run(self):
         for _ in range(self._thread_count):
@@ -59,13 +63,14 @@ class _WorkerProcess(Process):
             time.sleep(0.01)
 
         for _ in range(self._thread_count - 1):
-            self._queue.put(stop)
+            self._queue.put(stopcall)
 
 
 class _MasterProcess(Process):
     def __init__(self):
         Process.__init__(self)
         self._queue = Queue()
+        self._queue_redistribute = Queue()
         self._max_process_count = 10
         self._task_limit_per_sec = 500
         self._workers: _WorkerProcess = []
@@ -79,9 +84,12 @@ class _MasterProcess(Process):
         self._queue.put(task)
 
     def stop(self):
-        self._queue.put(stop)
+        self._queue.put(stopcall)
 
     def _get_worker_index(self, index):
+        if index < 0:
+            return 0
+
         index += 1
         if index >= len(self._workers):
             index = 0
@@ -92,23 +100,27 @@ class _MasterProcess(Process):
         for worker in self._workers:
             remain = worker.get_stress()
             if remain == 0:
-                print("remain task: 0")
                 return
             remain_task_count_sum += remain
 
-        print("remain task:", remain_task_count_sum)
+        print(self._task_limit_per_sec, "task limit per sec, remain", remain_task_count_sum)
+        current_process_count = len(self._workers)
         need_process_count = math.ceil(self._task_limit_per_sec / (self._task_limit_per_sec - remain_task_count_sum))
-        if need_process_count > self._max_process_count:
-            need_process_count = self._max_process_count
-
-        old_count = len(self._workers)
-        if need_process_count <= old_count:
+        if need_process_count + current_process_count >= self._max_process_count:
+            print("reach max process limit")
             return
-        add = need_process_count - old_count
 
-        print("add process:", add)
-        for i in range(add):
+        for worker in self._workers:
+            worker.poll(self._queue_redistribute)
+
+        print("add", need_process_count, "process. redistribute tasks", self._queue_redistribute.qsize())
+        for i in range(need_process_count):
             self._add_process()
+
+        index = -1
+        while not self._queue_redistribute.empty():
+            index = self._get_worker_index(index)
+            self._workers[index].put(self._queue_redistribute.get())
 
     def run(self):
         self._add_process()
@@ -128,7 +140,7 @@ class _MasterProcess(Process):
 
             index = self._get_worker_index(index)
             v = self._queue.get()
-            if v == stop:
+            if v == stopcall:
                 break
             task_counter += 1
             self._workers[index].put(v)
@@ -137,7 +149,7 @@ class _MasterProcess(Process):
         while not self._queue.empty():
             self._queue.get()
         for worker in self._workers:
-            worker.put(stop)
+            worker.put(stopcall)
 
 
 class ProcessService(object, metaclass=Singleton):
