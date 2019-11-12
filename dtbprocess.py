@@ -73,10 +73,11 @@ class _MasterProcess(Process):
         self._queue_redistribute = Queue()
         self._max_process_count = 10
         self._task_limit_per_sec = 500
+        self._thread_count = 4
         self._workers: _WorkerProcess = []
 
     def _add_process(self):
-        worker = _WorkerProcess(4)
+        worker = _WorkerProcess(self._thread_count)
         self._workers.append(worker)
         worker.start()
 
