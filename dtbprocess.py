@@ -3,7 +3,7 @@ import time
 
 from multiprocessing import Process, Queue, Value
 from threading import Thread
-from typing import Callable, Any
+from typing import Callable
 from singleton3 import Singleton
 
 
