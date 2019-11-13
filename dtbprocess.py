@@ -140,6 +140,7 @@ class _MasterProcess(Process):
         print("redistribute task done")
 
     def run(self):
+        print("master run")
         self._add_process()
 
         cur_time = time.time()
@@ -168,6 +169,7 @@ class _MasterProcess(Process):
             self._queue.get()
         for worker in self._workers:
             worker.put(process_service_stop_param)
+        print("master stop")
 
 
 class ProcessService(object, metaclass=Singleton):
