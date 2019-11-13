@@ -118,9 +118,13 @@ class _MasterProcess(Process):
         print(self._task_limit_per_sec, "task limit per sec, remain", remain_task_count_sum)
         current_process_count = len(self._workers)
         need_process_count = math.ceil(self._task_limit_per_sec / (self._task_limit_per_sec - remain_task_count_sum))
-        if need_process_count + current_process_count >= self._max_process_count:
-            print("reach max process limit")
+        if current_process_count >= self._max_process_count:
+            print("reach max process count, can not add process")
             return
+
+        if need_process_count + current_process_count > self._max_process_count:
+            need_process_count = self._max_process_count - current_process_count
+            print("reach max process count now")
 
         self._pause.value = 1
         for worker in self._workers:
