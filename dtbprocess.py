@@ -1,3 +1,7 @@
+"""distributed process, auto create more process to execute thread task with task count limit per second"""
+
+__author__ = 'Xu Ning (real_xn@hotmail.com)'
+
 import math
 import time
 
