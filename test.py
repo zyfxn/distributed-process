@@ -9,6 +9,8 @@ def hello(a, b, c):
 
 if __name__ == '__main__':
     service = ProcessService()
+    service.config(task_limit_per_sec=1500)
+    service.start()
 
     start_time = time.time()
     for i in range(5000):

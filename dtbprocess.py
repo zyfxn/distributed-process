@@ -81,6 +81,11 @@ class _MasterProcess(Process):
         self._pause = Value('b', 0)
         self._remain_task = 0
 
+    def config(self, max_process_count: int = 10, task_limit_per_sec: int = 1000, thread_count: int = 4):
+        self._max_process_count = max_process_count
+        self._task_limit_per_sec = task_limit_per_sec
+        self._thread_count = thread_count
+
     def _add_process(self):
         worker = _WorkerProcess(self._thread_count, self._pause)
         self._workers.append(worker)
@@ -179,11 +184,24 @@ class _MasterProcess(Process):
 class ProcessService(object, metaclass=Singleton):
     def __init__(self):
         self._master = _MasterProcess()
-        self._master.start()
+        self.started = False
+
+    def config(self, max_process_count: int = 10, task_limit_per_sec: int = 1000, thread_count: int = 4):
+        self._master.config(max_process_count, task_limit_per_sec, thread_count)
+
+    def start(self):
+        if not self.started:
+            self.started = True
+            self._master.start()
 
     def put(self, func: Callable, *args, **kw):
-        self._master.put((func, args, kw))
+        if self.started:
+            self._master.put((func, args, kw))
+        else:
+            print("process service not started")
 
     def shutdown(self):
-        self._master.stop()
-        self._master.join()
+        if self.started:
+            self._master.stop()
+            self._master.join()
+            self.started = False
